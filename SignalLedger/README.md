@@ -91,6 +91,12 @@ To push future changes with the GitHub deploy key, store the private key at `~/.
 bash scripts/push-with-deploy-key.sh
 ```
 
+If you have an existing private key to copy into that stable path, use:
+
+```bash
+bash scripts/install-deploy-key.sh /path/to/private_key
+```
+
 ## Notes
 
 - Signal events are append-only.
