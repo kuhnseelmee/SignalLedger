@@ -85,6 +85,18 @@ bash scripts/deploy.sh
 
 If TLS still fails in the browser, verify that no other process on the VPS already owns ports `80` and `443`, and that the firewall allows inbound TCP on both ports.
 
+To push future changes with the GitHub deploy key, store the private key at `~/.ssh/signalledger_github_deploy_key` and run:
+
+```bash
+bash scripts/push-with-deploy-key.sh
+```
+
+If you have an existing private key to copy into that stable path, use:
+
+```bash
+bash scripts/install-deploy-key.sh /path/to/private_key
+```
+
 ## Notes
 
 - Signal events are append-only.
