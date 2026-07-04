@@ -9,7 +9,6 @@ build
 .env.production.local
 .vite
 coverage
-pnpm-lock.yaml
 *.log
 apps/*/dist
 packages/*/dist
