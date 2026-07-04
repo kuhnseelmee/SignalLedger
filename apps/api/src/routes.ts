@@ -112,7 +112,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await pool.query(
         `insert into audit_log (tenant_id, user_id, action, entity_type, entity_id, metadata)
        values ($1, $2, 'login', 'user', $3, $4::jsonb)`,
-        [user.tenant_id, user.id, user.id, JSON.stringify({ email: body.email })],
+        [
+          user.tenant_id,
+          user.id,
+          user.id,
+          JSON.stringify({ email: body.email }),
+        ],
       );
       return { ok: true, tenantId: user.tenant_id, role: user.role };
     },
