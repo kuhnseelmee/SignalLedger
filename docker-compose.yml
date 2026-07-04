@@ -2,7 +2,7 @@ services:
   postgres:
     image: postgres:16
     ports:
-      - "5435:5432"
+      - "127.0.0.1:5435:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-signalledger}
       POSTGRES_USER: ${POSTGRES_USER:-signalledger}
@@ -23,8 +23,8 @@ services:
     image: nats:2.10
     command: ["-js", "-m", "8222"]
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
     volumes:
       - nats_data:/data
 
@@ -35,8 +35,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio_data:/data
 
@@ -101,8 +101,8 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-evidence}
       SIGNALLEDGER_OUTBOX_INTERVAL_MS: ${SIGNALLEDGER_OUTBOX_INTERVAL_MS:-2000}
-      WEB_ORIGIN: ${WEB_ORIGIN:-http://signalledger.frankai.online:4316}
-      API_ORIGIN: ${API_ORIGIN:-http://signalledger.frankai.online:4315}
+      WEB_ORIGIN: ${WEB_ORIGIN:-https://signalledger.frankai.online}
+      API_ORIGIN: ${API_ORIGIN:-https://signalledger.frankai.online}
     depends_on:
       postgres:
         condition: service_healthy
@@ -118,14 +118,13 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL:-/api}
     environment:
-      SIGNALLEDGER_SITE_ADDR: ${SIGNALLEDGER_SITE_ADDR:-signalledger.frankai.online}
+      SIGNALLEDGER_SITE_ADDR: ${SIGNALLEDGER_SITE_ADDR:-:80}
       CADDY_EMAIL: ${CADDY_EMAIL:-admin@signalledger.frankai.online}
     depends_on:
       api:
         condition: service_started
     ports:
-      - "${PUBLIC_HTTP_PORT:-80}:80"
-      - "${PUBLIC_HTTPS_PORT:-443}:443"
+      - "127.0.0.1:${WEB_HOST_PORT:-18080}:80"
 
 volumes:
   postgres_data:
