@@ -30,15 +30,6 @@ if [[ -z "${CADDY_EMAIL:-}" ]]; then
   exit 1
 fi
 
-if command -v ss >/dev/null 2>&1; then
-  if ss -ltn '( sport = :80 or sport = :443 )' 2>/dev/null | tail -n +2 | grep -q .; then
-    echo "Port 80 or 443 is already in use on the host." >&2
-    echo "Stop the existing service before deploying SignalLedger, or move the public ports in $ENV_FILE." >&2
-    ss -ltn '( sport = :80 or sport = :443 )' 2>/dev/null | tail -n +2 >&2 || true
-    exit 1
-  fi
-fi
-
 if [[ -n "${PUBLIC_IP:-}" && "${SIGNALLEDGER_SITE_ADDR}" != :* ]]; then
   resolved_ip="$(getent ahostsv4 "${PUBLIC_HOST:-$SIGNALLEDGER_SITE_ADDR}" | awk 'NR==1 { print $1 }' || true)"
   if [[ -n "$resolved_ip" && "$resolved_ip" != "$PUBLIC_IP" ]]; then
