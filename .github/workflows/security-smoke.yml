@@ -1,0 +1,54 @@
+name: Security Smoke
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Configuration and exposure smoke checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Confirm tracked environment templates exist
+        run: |
+          test -f .env.example
+          test -f .env.production.example
+
+      - name: Confirm no plain .env file is committed
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env is committed to the repository"
+            exit 1
+          fi
+
+      - name: Confirm no obvious private key files are committed
+        run: |
+          matches="$(git ls-files | rg '(^|/)(id_rsa|id_dsa|id_ecdsa|id_ed25519|.*\.pem|.*\.key)$' || true)"
+          if [ -n "$matches" ]; then
+            printf '%s\n' "$matches"
+            echo "::error::Private key material appears to be committed"
+            exit 1
+          fi
+
+      - name: Validate compose rendering
+        run: docker compose config >/tmp/docker-compose.rendered.yml
+
+      - name: Confirm reverse-proxy front door and localhost-only backing services
+        run: |
+          rg -n '127\.0\.0\.1:18080:80' /tmp/docker-compose.rendered.yml
+          rg -n '127\.0\.0\.1:5435:5432' /tmp/docker-compose.rendered.yml
+          rg -n '127\.0\.0\.1:4222:4222' /tmp/docker-compose.rendered.yml
+          rg -n '127\.0\.0\.1:8222:8222' /tmp/docker-compose.rendered.yml
+          rg -n '127\.0\.0\.1:9000:9000' /tmp/docker-compose.rendered.yml
+          rg -n '127\.0\.0\.1:9001:9001' /tmp/docker-compose.rendered.yml
