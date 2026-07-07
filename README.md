@@ -110,3 +110,7 @@ bash scripts/install-deploy-key.sh /path/to/private_key
 - Early web UI is intentionally minimal.
 - PDF evidence pack generation is stubbed in the first milestone.
 - External regulatory submission is not automated.
+
+## Validation
+
+Repository validation and merge gates are documented in [docs/CI.md](./docs/CI.md).
