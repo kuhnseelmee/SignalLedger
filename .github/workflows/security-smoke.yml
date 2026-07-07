@@ -34,21 +34,93 @@ jobs:
 
       - name: Confirm no obvious private key files are committed
         run: |
-          matches="$(git ls-files | rg '(^|/)(id_rsa|id_dsa|id_ecdsa|id_ed25519|.*\.pem|.*\.key)$' || true)"
-          if [ -n "$matches" ]; then
-            printf '%s\n' "$matches"
-            echo "::error::Private key material appears to be committed"
-            exit 1
-          fi
+          python3 - <<'PY'
+          import re
+          import subprocess
+          import sys
+
+          pattern = re.compile(r'(^|/)(id_rsa|id_dsa|id_ecdsa|id_ed25519|.*\.pem|.*\.key)$')
+          files = subprocess.check_output(["git", "ls-files"], text=True).splitlines()
+          matches = [path for path in files if pattern.search(path)]
+          if matches:
+              for match in matches:
+                  print(match)
+              print("::error::Private key material appears to be committed")
+              sys.exit(1)
+          PY
 
       - name: Validate compose rendering
-        run: docker compose config >/tmp/docker-compose.rendered.yml
+        run: docker compose config >/dev/null
 
       - name: Confirm reverse-proxy front door and localhost-only backing services
         run: |
-          rg -n '127\.0\.0\.1:18080:80' /tmp/docker-compose.rendered.yml
-          rg -n '127\.0\.0\.1:5435:5432' /tmp/docker-compose.rendered.yml
-          rg -n '127\.0\.0\.1:4222:4222' /tmp/docker-compose.rendered.yml
-          rg -n '127\.0\.0\.1:8222:8222' /tmp/docker-compose.rendered.yml
-          rg -n '127\.0\.0\.1:9000:9000' /tmp/docker-compose.rendered.yml
-          rg -n '127\.0\.0\.1:9001:9001' /tmp/docker-compose.rendered.yml
+          python3 - <<'PY'
+          import json
+          import re
+          import subprocess
+          import sys
+
+          def load_compose():
+              try:
+                  raw = subprocess.check_output(
+                      ["docker", "compose", "config", "--format", "json"],
+                      text=True,
+                  )
+                  return json.loads(raw)
+              except Exception:
+                  raw = subprocess.check_output(["docker", "compose", "config"], text=True)
+                  try:
+                      import yaml
+
+                      return yaml.safe_load(raw)
+                  except Exception:
+                      return {"__raw__": raw}
+
+          def assert_port_bindings(services, service, expected_bindings):
+              ports = services.get(service, {}).get("ports", [])
+              observed = []
+              for port in ports:
+                  if isinstance(port, dict):
+                      host_ip = port.get("host_ip")
+                      published = str(port.get("published")) if port.get("published") is not None else None
+                      target = str(port.get("target")) if port.get("target") is not None else None
+                  else:
+                      value = str(port)
+                      host_ip = None
+                      published = None
+                      target = None
+                      if value.count(":") == 2:
+                          host_ip, published, target = value.split(":", 2)
+                      elif value.count(":") == 1:
+                          published, target = value.split(":", 1)
+                  observed.append((host_ip, published, target))
+                  if (host_ip or "127.0.0.1") == "127.0.0.1" and (published, target) in expected_bindings:
+                      return
+              raise SystemExit(f"{service} ports do not match expected localhost bindings: {observed}")
+
+          data = load_compose()
+          if isinstance(data, dict) and "__raw__" in data:
+              raw = data["__raw__"]
+              required = [
+                  "127.0.0.1:18080:80",
+                  "127.0.0.1:5435:5432",
+                  "127.0.0.1:4222:4222",
+                  "127.0.0.1:8222:8222",
+                  "127.0.0.1:9000:9000",
+                  "127.0.0.1:9001:9001",
+              ]
+              missing = [needle for needle in required if needle not in raw]
+              if missing:
+                  raise SystemExit(f"missing compose bindings: {missing}")
+              sys.exit(0)
+
+          services = data.get("services", {}) if isinstance(data, dict) else {}
+          web = services.get("web", {})
+          web_ports = web.get("ports", [])
+          if not web_ports:
+              raise SystemExit("web service does not publish a localhost port")
+          assert_port_bindings(services, "web", {("18080", "80")})
+          assert_port_bindings(services, "postgres", {("5435", "5432")})
+          assert_port_bindings(services, "nats", {("4222", "4222"), ("8222", "8222")})
+          assert_port_bindings(services, "minio", {("9000", "9000"), ("9001", "9001")})
+          PY
