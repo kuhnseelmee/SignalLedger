@@ -66,10 +66,9 @@ if matches:
     print("private key material is committed")
     sys.exit(1)
 PY
-docker compose config >/dev/null
+docker compose config --format json >/tmp/docker-compose.rendered.json
 python3 - <<'PY'
 import json
-import re
 import subprocess
 import sys
 
@@ -82,16 +81,11 @@ def load_compose():
         return json.loads(raw)
     except Exception:
         raw = subprocess.check_output(["docker", "compose", "config"], text=True)
-        try:
-            import yaml
+        return {"__raw__": raw}
 
-            return yaml.safe_load(raw)
-        except Exception:
-            return {"__raw__": raw}
-
-def assert_port_bindings(services, service, expected_bindings):
-    ports = services.get(service, {}).get("ports", [])
-    observed = []
+def assert_local_port(entries, service, expected_target, expected_host_ports):
+    ports = entries.get("services", {}).get(service, {}).get("ports", [])
+    seen = []
     for port in ports:
         if isinstance(port, dict):
             host_ip = port.get("host_ip")
@@ -99,43 +93,43 @@ def assert_port_bindings(services, service, expected_bindings):
             target = str(port.get("target")) if port.get("target") is not None else None
         else:
             value = str(port)
-            host_ip = None
-            published = None
-            target = None
-            if value.count(":") == 2:
-                host_ip, published, target = value.split(":", 2)
-            elif value.count(":") == 1:
-                published, target = value.split(":", 1)
-        observed.append((host_ip, published, target))
-        if (host_ip or "127.0.0.1") == "127.0.0.1" and (published, target) in expected_bindings:
+            if ":" not in value:
+                continue
+            parts = value.split(":")
+            if len(parts) == 3:
+                host_ip, published, target = parts
+            elif len(parts) == 2:
+                host_ip = None
+                published, target = parts
+            else:
+                continue
+        seen.append((host_ip, published, target))
+        if target == str(expected_target) and published in expected_host_ports and (host_ip in (None, "127.0.0.1")):
             return
-    raise SystemExit(f"{service} ports do not match expected localhost bindings: {observed}")
+    print(f"{service} ports: {seen}")
+    raise SystemExit(f"{service} is not bound to localhost as expected")
 
 data = load_compose()
-if isinstance(data, dict) and "__raw__" in data:
+if "__raw__" in data:
     raw = data["__raw__"]
-    required = [
-        "127.0.0.1:18080:80",
-        "127.0.0.1:5435:5432",
-        "127.0.0.1:4222:4222",
-        "127.0.0.1:8222:8222",
-        "127.0.0.1:9000:9000",
-        "127.0.0.1:9001:9001",
-    ]
-    missing = [needle for needle in required if needle not in raw]
-    if missing:
-        raise SystemExit(f"missing compose bindings: {missing}")
-    sys.exit(0)
-
-services = data.get("services", {}) if isinstance(data, dict) else {}
-web = services.get("web", {})
-web_ports = web.get("ports", [])
-if not web_ports:
-    raise SystemExit("web service does not publish a localhost port")
-assert_port_bindings(services, "web", {("18080", "80")})
-assert_port_bindings(services, "postgres", {("5435", "5432")})
-assert_port_bindings(services, "nats", {("4222", "4222"), ("8222", "8222")})
-assert_port_bindings(services, "minio", {("9000", "9000"), ("9001", "9001")})
+    expected = {
+        "web": [("127.0.0.1", "18080", "80")],
+        "postgres": [("127.0.0.1", "5435", "5432")],
+        "nats": [("127.0.0.1", "4222", "4222"), ("127.0.0.1", "8222", "8222")],
+        "minio": [("127.0.0.1", "9000", "9000"), ("127.0.0.1", "9001", "9001")],
+    }
+    for service, tuples in expected.items():
+        for host_ip, published, target in tuples:
+            needle = f"{host_ip}:{published}:{target}"
+            if needle not in raw:
+                raise SystemExit(f"missing compose binding: {service} -> {needle}")
+else:
+    assert_local_port(data, "web", 80, {"18080"})
+    assert_local_port(data, "postgres", 5432, {"5435"})
+    assert_local_port(data, "nats", 4222, {"4222"})
+    assert_local_port(data, "nats", 8222, {"8222"})
+    assert_local_port(data, "minio", 9000, {"9000"})
+    assert_local_port(data, "minio", 9001, {"9001"})
 PY
 ```
 
