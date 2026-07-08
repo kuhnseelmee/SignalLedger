@@ -56,6 +56,22 @@ Start the apps without Docker:
 pnpm dev
 ```
 
+## Validation
+
+Before merging, run:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm format
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+docker compose config
+```
+
+See [docs/CI.md](./docs/CI.md) for the full gate list and merge discipline.
+
 ## Demo credentials
 
 Development only:

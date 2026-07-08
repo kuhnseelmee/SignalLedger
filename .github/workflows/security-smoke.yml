@@ -1,0 +1,121 @@
+name: Security Smoke
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Configuration and exposure smoke checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Confirm tracked environment templates exist
+        run: |
+          test -f .env.example
+          test -f .env.production.example
+
+      - name: Confirm no plain .env file is committed
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env is committed to the repository"
+            exit 1
+          fi
+
+      - name: Confirm no obvious private key files are committed
+        run: |
+          python3 - <<'PY'
+          import re
+          import subprocess
+          import sys
+
+          pattern = re.compile(r'(^|/)(id_rsa|id_dsa|id_ecdsa|id_ed25519|.*\.pem|.*\.key)$')
+          files = subprocess.check_output(["git", "ls-files"], text=True).splitlines()
+          matches = [path for path in files if pattern.search(path)]
+          if matches:
+              for match in matches:
+                  print(match)
+              print("::error::Private key material appears to be committed")
+              sys.exit(1)
+          PY
+
+      - name: Validate compose rendering
+        run: docker compose config --format json >/tmp/docker-compose.rendered.json
+
+      - name: Confirm reverse-proxy front door and localhost-only backing services
+        run: |
+          python3 - <<'PY'
+          import json
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          def load_compose():
+              try:
+                  raw = subprocess.check_output(
+                      ["docker", "compose", "config", "--format", "json"],
+                      text=True,
+                  )
+                  return json.loads(raw)
+              except Exception:
+                  raw = subprocess.check_output(["docker", "compose", "config"], text=True)
+                  return {"__raw__": raw}
+
+          def assert_local_port(entries, service, expected_target, expected_host_ports):
+              ports = entries.get("services", {}).get(service, {}).get("ports", [])
+              seen = []
+              for port in ports:
+                  if isinstance(port, dict):
+                      host_ip = port.get("host_ip")
+                      published = str(port.get("published")) if port.get("published") is not None else None
+                      target = str(port.get("target")) if port.get("target") is not None else None
+                  else:
+                      value = str(port)
+                      if ":" not in value:
+                          continue
+                      parts = value.split(":")
+                      if len(parts) == 3:
+                          host_ip, published, target = parts
+                      elif len(parts) == 2:
+                          host_ip = None
+                          published, target = parts
+                      else:
+                          continue
+                  seen.append((host_ip, published, target))
+                  if target == str(expected_target) and published in expected_host_ports and (host_ip in (None, "127.0.0.1")):
+                      return
+              print(f"{service} ports: {seen}")
+              raise SystemExit(f"{service} is not bound to localhost as expected")
+
+          data = load_compose()
+          if "__raw__" in data:
+              raw = data["__raw__"]
+              expected = {
+                  "web": [("127.0.0.1", "18080", "80")],
+                  "postgres": [("127.0.0.1", "5435", "5432")],
+                  "nats": [("127.0.0.1", "4222", "4222"), ("127.0.0.1", "8222", "8222")],
+                  "minio": [("127.0.0.1", "9000", "9000"), ("127.0.0.1", "9001", "9001")],
+              }
+              for service, tuples in expected.items():
+                  for host_ip, published, target in tuples:
+                      needle = f"{host_ip}:{published}:{target}"
+                      if needle not in raw:
+                          raise SystemExit(f"missing compose binding: {service} -> {needle}")
+          else:
+              assert_local_port(data, "web", 80, {"18080"})
+              assert_local_port(data, "postgres", 5432, {"5435"})
+              assert_local_port(data, "nats", 4222, {"4222"})
+              assert_local_port(data, "nats", 8222, {"8222"})
+              assert_local_port(data, "minio", 9000, {"9000"})
+              assert_local_port(data, "minio", 9001, {"9001"})
+          PY
