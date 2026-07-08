@@ -1,1 +1,4 @@
 pnpm-lock.yaml
+SignalLedger/apps/api/test/audit-log.test.ts
+apps/web/src/App.tsx
+apps/web/src/styles.css
